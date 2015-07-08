@@ -37,6 +37,7 @@ struct fib_config {
 	u32			fc_flags;
 	u32			fc_priority;
 	__be32			fc_prefsrc;
+	int			fc_mp_alg;
 	struct nlattr		*fc_mx;
 	struct rtnexthop	*fc_mp;
 	int			fc_mx_len;
@@ -119,6 +120,7 @@ struct fib_info {
 	int			fib_nhs;
 #ifdef CONFIG_IP_ROUTE_MULTIPATH
 	int			fib_weight;
+	int			fib_mp_alg;
 #endif
 	struct rcu_head		rcu;
 	struct fib_nh		fib_nh[0];
@@ -312,7 +314,25 @@ int ip_fib_check_default(__be32 gw, struct net_device *dev);
 int fib_sync_down_dev(struct net_device *dev, unsigned long event);
 int fib_sync_down_addr(struct net *net, __be32 local);
 int fib_sync_up(struct net_device *dev, unsigned int nh_flags);
-void fib_select_multipath(struct fib_result *res);
+
+struct multipath_flow4 {
+	__be32 saddr;
+	__be32 daddr;
+	union {
+		__be32 ports;
+		struct {
+			__be16 sport;
+			__be16 dport;
+		};
+	};
+};
+
+typedef void (*multipath_flow4_func_t)(struct multipath_flow4 *flow,
+				       void *ctx);
+
+void fib_select_multipath(struct fib_result *res,
+			  multipath_flow4_func_t flow_func,
+			  void *ctx);
 
 /* Exported by fib_trie.c */
 void fib_trie_init(void);
