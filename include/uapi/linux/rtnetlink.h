@@ -271,6 +271,18 @@ enum rt_scope_t {
 #define RTM_F_EQUALIZE		0x400	/* Multipath equalizer: NI	*/
 #define RTM_F_PREFIX		0x800	/* Prefix addresses		*/
 
+/* Multipath algorithms */
+
+enum rt_mp_alg_t {
+	RT_MP_ALG_L3_HASH,	/* Was IP_MP_ALG_NONE */
+	RT_MP_ALG_PER_PACKET,	/* Was IP_MP_ALG_RR */
+	RT_MP_ALG_DRR,		/* not used */
+	RT_MP_ALG_RANDOM,	/* not used */
+	RT_MP_ALG_WRANDOM,	/* not used */
+	RT_MP_ALG_L4_HASH,
+	__RT_MP_ALG_MAX
+};
+
 /* Reserved table identifiers */
 
 enum rt_class_t {
@@ -301,7 +313,7 @@ enum rtattr_type_t {
 	RTA_FLOW,
 	RTA_CACHEINFO,
 	RTA_SESSION, /* no longer used */
-	RTA_MP_ALGO, /* no longer used */
+	RTA_MP_ALGO,
 	RTA_TABLE,
 	RTA_MARK,
 	RTA_MFC_STATS,
