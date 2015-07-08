@@ -81,6 +81,7 @@ config IP_MULTIPLE_TABLES
 config IP_ROUTE_MULTIPATH
 	bool "IP: equal cost multipath"
 	depends on IP_ADVANCED_ROUTER
+	select BITREVERSE
 	help
 	  Normally, the routing tables specify a single action to be taken in
 	  a deterministic manner for a given packet. If you say Y here
