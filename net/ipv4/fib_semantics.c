@@ -259,6 +259,11 @@ static inline int nh_comp(const struct fib_info *fi, const struct fib_info *ofi)
 {
 	const struct fib_nh *onh = ofi->fib_nh;
 
+#ifdef CONFIG_IP_ROUTE_MULTIPATH
+	if (fi->fib_mp_alg != ofi->fib_mp_alg)
+		return -1;
+#endif
+
 	for_nexthops(fi) {
 		if (nh->nh_oif != onh->nh_oif ||
 		    nh->nh_gw  != onh->nh_gw ||
@@ -1028,6 +1033,7 @@ struct fib_info *fib_create_info(struct fib_config *cfg)
 
 	if (cfg->fc_mp) {
 #ifdef CONFIG_IP_ROUTE_MULTIPATH
+		fi->fib_mp_alg = cfg->fc_mp_alg;
 		err = fib_get_nhs(fi, cfg->fc_mp, cfg->fc_mp_len, cfg);
 		if (err != 0)
 			goto failure;
@@ -1244,6 +1250,10 @@ int fib_dump_info(struct sk_buff *skb, u32 portid, u32 seq, int event,
 	if (fi->fib_nhs > 1) {
 		struct rtnexthop *rtnh;
 		struct nlattr *mp;
+
+		if (fi->fib_mp_alg &&
+		    nla_put_u32(skb, RTA_MP_ALGO, fi->fib_mp_alg))
+			goto nla_put_failure;
 
 		mp = nla_nest_start(skb, RTA_MULTIPATH);
 		if (!mp)
@@ -1520,16 +1530,37 @@ int fib_sync_up(struct net_device *dev, unsigned int nh_flags)
 
 #ifdef CONFIG_IP_ROUTE_MULTIPATH
 
-/*
- * The algorithm is suboptimal, but it provides really
- * fair weighted route distribution.
- */
-void fib_select_multipath(struct fib_result *res)
+/* Compute multipath hash based on 3- or 5-tuple */
+static int fib_multipath_hash(const struct fib_result *res,
+			      multipath_flow4_func_t flow_func, void *ctx)
+{
+	struct multipath_flow4 flow;
+
+	flow_func(&flow, ctx);
+
+	if (res->fi->fib_mp_alg == RT_MP_ALG_L4_HASH)
+		return jhash_3words(flow.saddr, flow.daddr, flow.ports, 0) >> 1;
+	else
+		return jhash_2words(flow.saddr, flow.daddr, 0) >> 1;
+}
+
+static int fib_multipath_perpacket(void)
+{
+	return bitrev32(this_cpu_inc_return(fib_multipath_rr_counter)) >> 1;
+}
+
+void fib_select_multipath(struct fib_result *res,
+			  multipath_flow4_func_t flow_func,
+			  void *ctx)
 {
 	struct fib_info *fi = res->fi;
 	int h;
 
-	h = bitrev32(this_cpu_inc_return(fib_multipath_rr_counter)) >> 1;
+	if (res->fi->fib_mp_alg == RT_MP_ALG_PER_PACKET) {
+		h = fib_multipath_perpacket();
+	} else {
+		h = fib_multipath_hash(res, flow_func, ctx);
+	}
 
 	for_nexthops(fi) {
 		if (h > atomic_read(&nh->nh_upper_bound))
