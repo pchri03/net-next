@@ -28,6 +28,7 @@
 #include <net/inetpeer.h>
 #include <net/flow.h>
 #include <net/inet_sock.h>
+#include <net/ip_fib.h>
 #include <linux/in_route.h>
 #include <linux/rtnetlink.h>
 #include <linux/rcupdate.h>
@@ -110,7 +111,16 @@ struct in_device;
 int ip_rt_init(void);
 void rt_cache_flush(struct net *net);
 void rt_flush_dev(struct net_device *dev);
-struct rtable *__ip_route_output_key(struct net *, struct flowi4 *flp);
+struct rtable *__ip_route_output_key_flow(struct net *, struct flowi4 *flp,
+					  multipath_flow4_func_t flow_func,
+					  void *ctx);
+
+static inline struct rtable *__ip_route_output_key(struct net *net,
+						   struct flowi4 *flp)
+{
+	return __ip_route_output_key_flow(net, flp, NULL, NULL);
+}
+
 struct rtable *ip_route_output_flow(struct net *, struct flowi4 *flp,
 				    struct sock *sk);
 struct dst_entry *ipv4_blackhole_route(struct net *net,

@@ -1649,29 +1649,83 @@ out:
 static void ip_multipath_flow_skb(struct multipath_flow4 *flow, void *ctx)
 {
 	const struct sk_buff *skb = (const struct sk_buff *)ctx;
-	const struct iphdr *iph;
+	struct icmphdr _icmph;
+	struct iphdr _inner_iph;
+	const struct iphdr *outer_iph;
+	const struct icmphdr *icmph;
+	const struct iphdr *inner_iph;
+	unsigned int offset;
+	__be16 _ports[2];
+	const __be16 *ports;
 
-	iph = ip_hdr(skb);
+	outer_iph = ip_hdr(skb);
 
-	flow->saddr = iph->saddr;
-	flow->daddr = iph->daddr;
+	flow->saddr = outer_iph->saddr;
+	flow->daddr = outer_iph->daddr;
 	flow->ports = 0;
 
-	if (unlikely(!(iph->frag_off & htons(IP_DF))))
-		return;
+	offset = outer_iph->ihl * 4;
 
-	if (iph->protocol == IPPROTO_TCP ||
-	    iph->protocol == IPPROTO_UDP ||
-	    iph->protocol == IPPROTO_SCTP) {
-		__be16 _ports[2];
-		const __be16 *ports;
+	if (outer_iph->protocol == IPPROTO_TCP ||
+	    outer_iph->protocol == IPPROTO_UDP ||
+	    outer_iph->protocol == IPPROTO_SCTP) {
+		if (unlikely(!(outer_iph->frag_off & htons(IP_DF))))
+			return;
 
-		ports = skb_header_pointer(skb, iph->ihl * 4, sizeof(_ports),
+		ports = skb_header_pointer(skb, offset, sizeof(_ports),
 					   &_ports);
 		if (ports) {
 			flow->sport = ports[0];
 			flow->dport = ports[1];
 		}
+
+		return;
+	}
+
+	if (outer_iph->protocol != IPPROTO_ICMP)
+		return;
+
+	if (unlikely((outer_iph->frag_off & htons(IP_OFFSET)) != 0))
+		return;
+
+	icmph = skb_header_pointer(skb, offset, sizeof(_icmph), &_icmph);
+	if (!icmph)
+		return;
+
+	if (icmph->type != ICMP_DEST_UNREACH &&
+	    icmph->type != ICMP_SOURCE_QUENCH &&
+	    icmph->type != ICMP_REDIRECT &&
+	    icmph->type != ICMP_TIME_EXCEEDED &&
+	    icmph->type != ICMP_PARAMETERPROB) {
+		return;
+	}
+
+	offset += sizeof(_icmph);
+	inner_iph = skb_header_pointer(skb, offset, sizeof(_inner_iph),
+				       &_inner_iph);
+	if (!inner_iph)
+		return;
+
+	/* Since the ICMP payload contains a packet sent from the current
+	 * recipient, we swap source and destination addresses and ports
+	 */
+	flow->saddr = inner_iph->daddr;
+	flow->daddr = inner_iph->saddr;
+
+	if (unlikely(!(inner_iph->frag_off & htons(IP_DF))))
+		return;
+
+	if (inner_iph->protocol != IPPROTO_TCP &&
+	    inner_iph->protocol != IPPROTO_UDP &&
+	    inner_iph->protocol != IPPROTO_SCTP) {
+		return;
+	}
+
+	offset += inner_iph->ihl * 4;
+	ports = skb_header_pointer(skb, offset, sizeof(_ports), &_ports);
+	if (ports) {
+		flow->sport = ports[1];
+		flow->dport = ports[0];
 	}
 }
 
@@ -2086,7 +2140,9 @@ add:
  * Major route resolver routine.
  */
 
-struct rtable *__ip_route_output_key(struct net *net, struct flowi4 *fl4)
+struct rtable *__ip_route_output_key_flow(struct net *net, struct flowi4 *fl4,
+					  multipath_flow4_func_t flow_func,
+					  void *ctx)
 {
 	struct net_device *dev_out = NULL;
 	__u8 tos = RT_FL_TOS(fl4);
@@ -2248,9 +2304,12 @@ struct rtable *__ip_route_output_key(struct net *net, struct flowi4 *fl4)
 	}
 
 #ifdef CONFIG_IP_ROUTE_MULTIPATH
-	if (res.fi->fib_nhs > 1 && fl4->flowi4_oif == 0)
-		fib_select_multipath(&res, ip_multipath_flow_fl4, fl4);
-	else
+	if (res.fi->fib_nhs > 1 && fl4->flowi4_oif == 0) {
+		if (flow_func)
+			fib_select_multipath(&res, flow_func, ctx);
+		else
+			fib_select_multipath(&res, ip_multipath_flow_fl4, fl4);
+	} else
 #endif
 	if (!res.prefixlen &&
 	    res.table->tb_num_default > 1 &&
