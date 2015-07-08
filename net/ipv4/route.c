@@ -1631,6 +1631,58 @@ out:
 	return err;
 }
 
+#ifdef CONFIG_IP_ROUTE_MULTIPATH
+
+/* Fill multipath flow key data based on socket buffer */
+static void ip_multipath_flow_skb(struct multipath_flow4 *flow, void *ctx)
+{
+	const struct sk_buff *skb = (const struct sk_buff *)ctx;
+	const struct iphdr *iph;
+
+	iph = ip_hdr(skb);
+
+	flow->saddr = iph->saddr;
+	flow->daddr = iph->daddr;
+	flow->ports = 0;
+
+	if (unlikely(!(iph->frag_off & htons(IP_DF))))
+		return;
+
+	if (iph->protocol == IPPROTO_TCP ||
+	    iph->protocol == IPPROTO_UDP ||
+	    iph->protocol == IPPROTO_SCTP) {
+		__be16 _ports[2];
+		const __be16 *ports;
+
+		ports = skb_header_pointer(skb, iph->ihl * 4, sizeof(_ports),
+					   &_ports);
+		if (ports) {
+			flow->sport = ports[0];
+			flow->dport = ports[1];
+		}
+	}
+}
+
+/* Fill multipath flow key data based on flowi4  */
+static void ip_multipath_flow_fl4(struct multipath_flow4 *flow, void *ctx)
+{
+	const struct flowi4 *fl4 = (const struct flowi4 *)ctx;
+
+	flow->saddr = fl4->saddr;
+	flow->daddr = fl4->daddr;
+
+	if (fl4->flowi4_proto == IPPROTO_TCP ||
+	    fl4->flowi4_proto == IPPROTO_UDP ||
+	    fl4->flowi4_proto == IPPROTO_SCTP) {
+		flow->sport = fl4->fl4_sport;
+		flow->dport = fl4->fl4_dport;
+	} else {
+		flow->ports = 0;
+	}
+}
+
+#endif /* CONFIG_IP_ROUTE_MULTIPATH */
+
 static int ip_mkroute_input(struct sk_buff *skb,
 			    struct fib_result *res,
 			    const struct flowi4 *fl4,
@@ -1639,7 +1691,7 @@ static int ip_mkroute_input(struct sk_buff *skb,
 {
 #ifdef CONFIG_IP_ROUTE_MULTIPATH
 	if (res->fi && res->fi->fib_nhs > 1)
-		fib_select_multipath(res);
+		fib_select_multipath(res, ip_multipath_flow_skb, skb);
 #endif
 
 	/* create a routing cache entry */
@@ -2170,7 +2222,7 @@ struct rtable *__ip_route_output_key(struct net *net, struct flowi4 *fl4)
 
 #ifdef CONFIG_IP_ROUTE_MULTIPATH
 	if (res.fi->fib_nhs > 1 && fl4->flowi4_oif == 0)
-		fib_select_multipath(&res);
+		fib_select_multipath(&res, ip_multipath_flow_fl4, fl4);
 	else
 #endif
 	if (!res.prefixlen &&
