@@ -102,6 +102,8 @@ struct rt_cache_stat {
         unsigned int in_martian_src;
         unsigned int out_slow_tot;
         unsigned int out_slow_mc;
+        unsigned long long int mkroute_count;
+        unsigned long long int mkroute_cycles;
 };
 
 extern struct ip_rt_acct __percpu *ip_rt_acct;

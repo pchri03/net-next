@@ -189,6 +189,7 @@ EXPORT_SYMBOL(ip_tos2prio);
 
 static DEFINE_PER_CPU(struct rt_cache_stat, rt_cache_stat);
 #define RT_CACHE_STAT_INC(field) raw_cpu_inc(rt_cache_stat.field)
+#define RT_CACHE_STAT_ADD(field,val) raw_cpu_add(rt_cache_stat.field,val)
 
 #ifdef CONFIG_PROC_FS
 static void *rt_cache_seq_start(struct seq_file *seq, loff_t *pos)
@@ -279,12 +280,12 @@ static int rt_cpu_seq_show(struct seq_file *seq, void *v)
 	struct rt_cache_stat *st = v;
 
 	if (v == SEQ_START_TOKEN) {
-		seq_printf(seq, "entries  in_hit in_slow_tot in_slow_mc in_no_route in_brd in_martian_dst in_martian_src  out_hit out_slow_tot out_slow_mc  gc_total gc_ignored gc_goal_miss gc_dst_overflow in_hlist_search out_hlist_search\n");
+		seq_printf(seq, "entries  in_hit in_slow_tot in_slow_mc in_no_route in_brd in_martian_dst in_martian_src  out_hit out_slow_tot out_slow_mc  gc_total gc_ignored gc_goal_miss gc_dst_overflow in_hlist_search out_hlist_search mkroute_count mkroute_cycles\n");
 		return 0;
 	}
 
 	seq_printf(seq,"%08x  %08x %08x %08x %08x %08x %08x %08x "
-		   " %08x %08x %08x %08x %08x %08x %08x %08x %08x \n",
+		   " %08x %08x %08x %08x %08x %08x %08x %08x %08x %llu %llu\n",
 		   dst_entries_get_slow(&ipv4_dst_ops),
 		   0, /* st->in_hit */
 		   st->in_slow_tot,
@@ -303,7 +304,10 @@ static int rt_cpu_seq_show(struct seq_file *seq, void *v)
 		   0, /* st->gc_goal_miss */
 		   0, /* st->gc_dst_overflow */
 		   0, /* st->in_hlist_search */
-		   0  /* st->out_hlist_search */
+		   0, /* st->out_hlist_search */
+
+		   st->mkroute_count,
+		   st->mkroute_cycles
 		);
 	return 0;
 }
@@ -1743,10 +1747,20 @@ static int ip_mkroute_input(struct sk_buff *skb,
 			    struct in_device *in_dev,
 			    __be32 daddr, __be32 saddr, u32 tos)
 {
+	cycles_t before;
+	cycles_t after;
+
+	before = get_cycles();
+
 #ifdef CONFIG_IP_ROUTE_MULTIPATH
 	if (res->fi && res->fi->fib_nhs > 1)
 		fib_select_multipath(res, ip_multipath_flow_skb, skb);
 #endif
+
+	after = get_cycles();
+
+	RT_CACHE_STAT_INC(mkroute_count);
+	RT_CACHE_STAT_ADD(mkroute_cycles, after - before);
 
 	/* create a routing cache entry */
 	return __mkroute_input(skb, res, in_dev, daddr, saddr, tos);
