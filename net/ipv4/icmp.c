@@ -439,6 +439,38 @@ out_unlock:
 	icmp_xmit_unlock(sk);
 }
 
+/* Source and destination is swapped. See ip_multipath_flow_skb */
+static void icmp_multipath_flow(struct multipath_flow4 *flow,
+				enum rt_mp_alg_t algo, void *ctx)
+{
+	const struct sk_buff *skb = (const struct sk_buff *)ctx;
+	const struct iphdr *iph = ip_hdr(skb);
+
+	flow->saddr = iph->daddr;
+	flow->daddr = iph->saddr;
+	flow->ports = 0;
+
+	if (algo == RT_MP_ALG_L4_HASH)
+		return;
+
+	if (unlikely(!(iph->frag_off & htons(IP_DF))))
+		return;
+
+	if (iph->protocol == IPPROTO_TCP ||
+	    iph->protocol == IPPROTO_UDP ||
+	    iph->protocol == IPPROTO_SCTP) {
+		__be16 _ports[2];
+		const __be16 *ports;
+
+		ports = skb_header_pointer(skb, iph->ihl * 4, sizeof(_ports),
+					   &_ports);
+		if (ports) {
+			flow->sport = ports[1];
+			flow->dport = ports[0];
+		}
+	}
+}
+
 static struct rtable *icmp_route_lookup(struct net *net,
 					struct flowi4 *fl4,
 					struct sk_buff *skb_in,
@@ -463,7 +495,7 @@ static struct rtable *icmp_route_lookup(struct net *net,
 	fl4->flowi4_oif = vrf_master_ifindex(skb_in->dev) ? : skb_in->dev->ifindex;
 
 	security_skb_classify_flow(skb_in, flowi4_to_flowi(fl4));
-	rt = __ip_route_output_key(net, fl4);
+	rt = __ip_route_output_key_flow(net, fl4, icmp_multipath_flow, skb_in);
 	if (IS_ERR(rt))
 		return rt;
 
