@@ -326,7 +326,7 @@ struct multipath_flow4 {
 };
 
 typedef void (*multipath_flow4_func_t)(struct multipath_flow4 *flow,
-				       void *ctx);
+				       enum rt_mp_alg_t algo, void *ctx);
 
 void fib_select_multipath(struct fib_result *res,
 			  multipath_flow4_func_t flow_func,
