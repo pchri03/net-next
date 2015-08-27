@@ -1385,7 +1385,7 @@ static int fib_multipath_hash(const struct fib_result *res,
 {
 	struct multipath_flow4 flow;
 
-	flow_func(&flow, ctx);
+	flow_func(&flow, res->fi->fib_mp_alg, ctx);
 
 	if (res->fi->fib_mp_alg == RT_MP_ALG_L4_HASH)
 		return jhash_3words(flow.saddr, flow.daddr, flow.ports, 0) >> 1;
