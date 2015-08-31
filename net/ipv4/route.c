@@ -1653,9 +1653,95 @@ out:
 
 #ifdef CONFIG_IP_ROUTE_MULTIPATH
 
+static u32 multipath_secret __read_mostly;
+static __always_inline void ip_multipath_hash_secret_init(void)
+{
+	net_get_random_once(&multipath_secret, sizeof(multipath_secret));
+}
+
 static int ip_multipath_hash_skb(void *ctx)
 {
+	struct sk_buff *skb = (struct sk_buff *)ctx;
+
+#if defined(CONFIG_MPHASH_FLOW_DISSECTOR)
+
+	if (!skb->hash)
+		__skb_get_hash(skb);
+	return skb->hash;
+
+#elif defined(CONFIG_MPHASH_L3)
+
+	const struct iphdr *iph;
+
+	if (skb->hash && !skb->l4_hash)
+		return skb->hash;
+
+	ip_multipath_hash_secret_init();
+
+	iph = ip_hdr(skb);
+	return jhash_2words(iph->saddr, iph->daddr, multipath_secret);
+
+#elif defined(CONFIG_MPHASH_L3_ICMP)
+
+	const struct iphdr *iph;
+	struct icmphdr _icmph;
+	const struct icmphdr *icmph;
+	struct iphdr _inner_iph;
+	const struct iphdr *inner_iph;
+
+	ip_multipath_hash_secret_init();
+
+	iph = ip_hdr(skb);
+	if (likely(iph->protocol != IPPROTO_ICMP)) {
+def:
+		return jhash_2words(iph->saddr, iph->daddr, multipath_secret);
+	}
+
+	icmph = skb_header_pointer(skb, iph->ihl * 4, sizeof(_icmph), &_icmph);
+	if (!icmph ||
+	    (icmph->type != ICMP_DEST_UNREACH &&
+	     icmph->type != ICMP_SOURCE_QUENCH &&
+	     icmph->type != ICMP_REDIRECT &&
+	     icmph->type != ICMP_TIME_EXCEEDED &&
+	     icmph->type != ICMP_PARAMETERPROB)) {
+		goto def;
+	}
+
+	inner_iph = skb_header_pointer(skb, iph->ihl * 4 + sizeof(_icmph),
+				       sizeof(_inner_iph), &_inner_iph);
+	if (unlikely(!inner_iph))
+		goto def;
+
+	return jhash_2words(inner_iph->daddr, inner_iph->saddr,
+			    multipath_secret);
+
+#elif defined(CONFIG_MPHASH_L4)
+
+	const struct iphdr *iph;
+
+	ip_multipath_hash_secret_init();
+
+	iph = ip_hdr(skb);
+	if (iph->protocol == IPPROTO_TCP &&
+	    (iph->frag_off & htons(IP_DF | IP_MF | IP_OFFSET)) == htons(IP_DF)) {
+		__be32 _ports;
+		const __be32 *ports;
+
+		ports = skb_header_pointer(skb, iph->ihl * 4, sizeof(_ports),
+					   &_ports);
+		if (ports) {
+			return jhash_3words(iph->saddr, iph->daddr, *ports,
+					    multipath_secret);
+		}
+	}
+
+	return jhash_2words(iph->saddr, iph->daddr, multipath_secret);
+
+#else
+
 	return 0;
+
+#endif
 }
 
 static int ip_multipath_hash_fl4(void *ctx)

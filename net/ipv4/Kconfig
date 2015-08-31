@@ -90,6 +90,26 @@ config IP_ROUTE_MULTIPATH
 	  equal "cost" and chooses one of them in a non-deterministic fashion
 	  if a matching packet arrives.
 
+choice
+	prompt "Multipath algorithm"
+	depends on IP_ROUTE_MULTIPATH
+	default MPHASH_FLOW_DISSECTOR
+	help
+	  Select the algorithm that choses output path.
+
+	config MPHASH_FLOW_DISSECTOR
+		bool "Flow dissector"
+
+	config MPHASH_L3
+		bool "L3 only"
+
+	config MPHASH_L3_ICMP
+		bool "L3 with ICMP handling"
+
+	config MPHASH_L4
+		bool "L4"
+endchoice
+
 config IP_ROUTE_VERBOSE
 	bool "IP: verbose route monitoring"
 	depends on IP_ADVANCED_ROUTER
