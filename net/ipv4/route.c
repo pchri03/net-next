@@ -1646,6 +1646,25 @@ out:
 	return err;
 }
 
+#ifdef CONFIG_IP_ROUTE_MULTIPATH
+
+static int ip_multipath_hash_skb(void *ctx)
+{
+	const struct sk_buff *skb = (struct sk_buff *)ctx;
+	const struct iphdr *iph = ip_hdr(skb);
+
+	return jhash_2words(iph->saddr, iph->daddr, fib_multipath_secret);
+}
+
+static int ip_multipath_hash_fl4(void *ctx)
+{
+	const struct flowi4 *fl4 = (const struct flowi4 *)ctx;
+
+	return jhash_2words(fl4->saddr, fl4->daddr, fib_multipath_secret);
+}
+
+#endif /* CONFIG_IP_ROUTE_MULTIPATH */
+
 static int ip_mkroute_input(struct sk_buff *skb,
 			    struct fib_result *res,
 			    const struct flowi4 *fl4,
@@ -1654,7 +1673,7 @@ static int ip_mkroute_input(struct sk_buff *skb,
 {
 #ifdef CONFIG_IP_ROUTE_MULTIPATH
 	if (res->fi && res->fi->fib_nhs > 1)
-		fib_select_multipath(res);
+		fib_select_multipath(res, ip_multipath_hash_skb, skb);
 #endif
 
 	/* create a routing cache entry */
@@ -2200,7 +2219,7 @@ struct rtable *__ip_route_output_key(struct net *net, struct flowi4 *fl4)
 
 #ifdef CONFIG_IP_ROUTE_MULTIPATH
 	if (res.fi->fib_nhs > 1 && fl4->flowi4_oif == 0)
-		fib_select_multipath(&res);
+		fib_select_multipath(&res, ip_multipath_hash_fl4, fl4);
 	else
 #endif
 	if (!res.prefixlen &&
