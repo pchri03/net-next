@@ -79,7 +79,7 @@ struct fib_nh {
 	unsigned char		nh_scope;
 #ifdef CONFIG_IP_ROUTE_MULTIPATH
 	int			nh_weight;
-	int			nh_power;
+	atomic_t		nh_upper_bound;
 #endif
 #ifdef CONFIG_IP_ROUTE_CLASSID
 	__u32			nh_tclassid;
@@ -118,7 +118,7 @@ struct fib_info {
 #define fib_advmss fib_metrics[RTAX_ADVMSS-1]
 	int			fib_nhs;
 #ifdef CONFIG_IP_ROUTE_MULTIPATH
-	int			fib_power;
+	int			fib_weight;
 #endif
 	struct rcu_head		rcu;
 	struct fib_nh		fib_nh[0];
@@ -312,7 +312,10 @@ int ip_fib_check_default(__be32 gw, struct net_device *dev);
 int fib_sync_down_dev(struct net_device *dev, unsigned long event);
 int fib_sync_down_addr(struct net *net, __be32 local);
 int fib_sync_up(struct net_device *dev, unsigned int nh_flags);
-void fib_select_multipath(struct fib_result *res);
+
+typedef int (*multipath_hash_func_t)(void *ctx);
+void fib_select_multipath(struct fib_result *res,
+			  multipath_hash_func_t hash_func, void *ctx);
 
 /* Exported by fib_trie.c */
 void fib_trie_init(void);
