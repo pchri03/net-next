@@ -1655,12 +1655,17 @@ out:
 
 static int ip_multipath_hash_skb(void *ctx)
 {
-	return 0;
+	const struct sk_buff *skb = (struct sk_buff *)ctx;
+	const struct iphdr *iph = ip_hdr(skb);
+
+	return jhash_2words(iph->saddr, iph->daddr, fib_multipath_secret);
 }
 
 static int ip_multipath_hash_fl4(void *ctx)
 {
-	return 0;
+	const struct flowi4 *fl4 = (const struct flowi4 *)ctx;
+
+	return jhash_2words(fl4->saddr, fl4->daddr, fib_multipath_secret);
 }
 
 #endif /* CONFIG_IP_ROUTE_MULTIPATH */
