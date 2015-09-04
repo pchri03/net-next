@@ -313,6 +313,8 @@ int fib_sync_down_dev(struct net_device *dev, unsigned long event);
 int fib_sync_down_addr(struct net *net, __be32 local);
 int fib_sync_up(struct net_device *dev, unsigned int nh_flags);
 
+extern u32 fib_multipath_secret __read_mostly;
+
 typedef int (*multipath_hash_func_t)(void *ctx);
 void fib_select_multipath(struct fib_result *res,
 			  multipath_hash_func_t hash_func, void *ctx);
