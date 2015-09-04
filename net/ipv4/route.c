@@ -1657,8 +1657,39 @@ static int ip_multipath_hash_skb(void *ctx)
 {
 	const struct sk_buff *skb = (struct sk_buff *)ctx;
 	const struct iphdr *iph = ip_hdr(skb);
+	struct icmphdr _icmph;
+	const struct icmphdr *icmph;
+	struct iphdr _inner_iph;
+	const struct iphdr *inner_iph;
 
-	return jhash_2words(iph->saddr, iph->daddr, fib_multipath_secret);
+	if (likely(iph->protocol != IPPROTO_ICMP)) {
+standard_hash:
+		return jhash_2words(iph->saddr, iph->daddr,
+				    fib_multipath_secret);
+	}
+
+	if (unlikely((iph->frag_off & htons(IP_OFFSET)) != 0))
+		goto standard_hash;
+
+	icmph = skb_header_pointer(skb, iph->ihl * 4, sizeof(_icmph), &_icmph);
+	if (!icmph)
+		goto standard_hash;
+
+	if (icmph->type != ICMP_DEST_UNREACH &&
+	    icmph->type != ICMP_SOURCE_QUENCH &&
+	    icmph->type != ICMP_REDIRECT &&
+	    icmph->type != ICMP_TIME_EXCEEDED &&
+	    icmph->type != ICMP_PARAMETERPROB) {
+		goto standard_hash;
+	}
+
+	inner_iph = skb_header_pointer(skb, iph->ihl * 4 + sizeof(_icmph),
+				       sizeof(_inner_iph), &_inner_iph);
+	if (!inner_iph)
+		goto standard_hash;
+
+	return jhash_2words(inner_iph->daddr, inner_iph->saddr,
+			    fib_multipath_secret);
 }
 
 static int ip_multipath_hash_fl4(void *ctx)
@@ -2071,7 +2102,9 @@ add:
  * Major route resolver routine.
  */
 
-struct rtable *__ip_route_output_key(struct net *net, struct flowi4 *fl4)
+struct rtable *__ip_route_output_key_hash(struct net *net, struct flowi4 *fl4,
+					  multipath_hash_func_t hash_func,
+					  void *ctx)
 {
 	struct net_device *dev_out = NULL;
 	__u8 tos = RT_FL_TOS(fl4);
@@ -2233,8 +2266,12 @@ struct rtable *__ip_route_output_key(struct net *net, struct flowi4 *fl4)
 	}
 
 #ifdef CONFIG_IP_ROUTE_MULTIPATH
-	if (res.fi->fib_nhs > 1 && fl4->flowi4_oif == 0)
-		fib_select_multipath(&res, ip_multipath_hash_fl4, fl4);
+	if (res.fi->fib_nhs > 1 && fl4->flowi4_oif == 0) {
+		if (hash_func)
+			fib_select_multipath(&res, hash_func, ctx);
+		else
+			fib_select_multipath(&res, ip_multipath_hash_fl4, fl4);
+	}
 	else
 #endif
 	if (!res.prefixlen &&
