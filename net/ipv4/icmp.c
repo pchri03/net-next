@@ -440,6 +440,15 @@ out_unlock:
 	icmp_xmit_unlock(sk);
 }
 
+/* Source and destination is swapped. See ip_multipath_hash_skb */
+static int icmp_multipath_hash_skb(void *ctx)
+{
+	const struct sk_buff *skb = (const struct sk_buff *)ctx;
+	const struct iphdr *iph = ip_hdr(skb);
+
+	return jhash_2words(iph->daddr, iph->saddr, fib_multipath_secret);
+}
+
 static struct rtable *icmp_route_lookup(struct net *net,
 					struct flowi4 *fl4,
 					struct sk_buff *skb_in,
@@ -464,7 +473,8 @@ static struct rtable *icmp_route_lookup(struct net *net,
 	fl4->flowi4_oif = vrf_master_ifindex(skb_in->dev) ? : skb_in->dev->ifindex;
 
 	security_skb_classify_flow(skb_in, flowi4_to_flowi(fl4));
-	rt = __ip_route_output_key(net, fl4);
+	rt = __ip_route_output_key_hash(net, fl4, icmp_multipath_hash_skb,
+					skb_in);
 	if (IS_ERR(rt))
 		return rt;
 
