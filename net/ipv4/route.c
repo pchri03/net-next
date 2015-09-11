@@ -1690,7 +1690,7 @@ standard_hash:
 
 static int ip_multipath_hash_skb(void *ctx)
 {
-	const struct sk_buff *skb = (struct sk_buff *)ctx;
+	struct sk_buff *skb = (struct sk_buff *)ctx;
 	const struct iphdr *iph = ip_hdr(skb);
 
 	if (unlikely(iph->protocol == IPPROTO_ICMP))
