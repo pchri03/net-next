@@ -1669,7 +1669,6 @@ static noinline int ip_multipath_icmp_hash_skb(struct sk_buff *skb)
 		goto standard_hash;
 
 	if (icmph->type != ICMP_DEST_UNREACH &&
-	    icmph->type != ICMP_SOURCE_QUENCH &&
 	    icmph->type != ICMP_REDIRECT &&
 	    icmph->type != ICMP_TIME_EXCEEDED &&
 	    icmph->type != ICMP_PARAMETERPROB) {
