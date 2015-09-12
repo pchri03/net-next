@@ -1655,16 +1655,17 @@ out:
 
 static noinline int ip_multipath_icmp_hash_skb(struct sk_buff *skb)
 {
-	const struct iphdr *iph = ip_hdr(skb);
+	const struct iphdr *outer_iph = ip_hdr(skb);
 	struct icmphdr _icmph;
 	const struct icmphdr *icmph;
 	struct iphdr _inner_iph;
 	const struct iphdr *inner_iph;
 
-	if (unlikely((iph->frag_off & htons(IP_OFFSET)) != 0))
+	if (unlikely((outer_iph->frag_off & htons(IP_OFFSET)) != 0))
 		goto standard_hash;
 
-	icmph = skb_header_pointer(skb, iph->ihl * 4, sizeof(_icmph), &_icmph);
+	icmph = skb_header_pointer(skb, outer_iph->ihl * 4, sizeof(_icmph),
+				   &_icmph);
 	if (!icmph)
 		goto standard_hash;
 
@@ -1675,7 +1676,8 @@ static noinline int ip_multipath_icmp_hash_skb(struct sk_buff *skb)
 		goto standard_hash;
 	}
 
-	inner_iph = skb_header_pointer(skb, iph->ihl * 4 + sizeof(_icmph),
+	inner_iph = skb_header_pointer(skb,
+				       outer_iph->ihl * 4 + sizeof(_icmph),
 				       sizeof(_inner_iph), &_inner_iph);
 	if (!inner_iph)
 		goto standard_hash;
@@ -1684,7 +1686,8 @@ static noinline int ip_multipath_icmp_hash_skb(struct sk_buff *skb)
 			    fib_multipath_secret);
 
 standard_hash:
-	return jhash_2words(iph->saddr, iph->daddr, fib_multipath_secret);
+	return jhash_2words(outer_iph->saddr, outer_iph->daddr,
+			    fib_multipath_secret);
 }
 
 static int ip_multipath_hash_skb(void *ctx)
